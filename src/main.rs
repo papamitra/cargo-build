@@ -1,6 +1,6 @@
 use cargo::core::compiler::{BuildConfig, CompileMode, Context, Executor, Unit};
 use cargo::core::{Shell, Workspace};
-use cargo::ops::{compile_with_exec, CompileFilter, CompileOptions, Packages};
+use cargo::ops::{compile_with_exec, CompileFilter, CompileOptions, FilterRule, Packages};
 use cargo::util::Config as CargoConfig;
 
 use std::env;
@@ -14,6 +14,43 @@ fn main() {
     let config = CargoConfig::new(shell, cwd.to_path_buf(), build_dir);
 
     let workspace = Workspace::new(&cwd, &config).unwrap();
+
+    let compile_opts = CompileOptions {
+        spec: Packages::from_flags(false, Vec::new(), Vec::new()).unwrap(),
+        filter: CompileFilter::new(
+            false,      // opts.lib,
+            Vec::new(), // opts.bin,
+            false,      // opts.bins,
+            // TODO: support more crate target types.
+            Vec::new(),
+            // Check all integration tests under `tests/`.
+            false, // cfg_test,
+            Vec::new(),
+            false,
+            Vec::new(),
+            false,
+            false, // opts.all_targets,
+        ),
+        build_config: BuildConfig::new(
+            &config,
+            None,  // opts.jobs,
+            &None, // &opts.target,
+            CompileMode::Check {
+                test: false, /* cfg_test */
+            },
+        )
+        .unwrap(),
+        features: Vec::new(),       // opts.features,
+        all_features: false,        // opts.all_features,
+        no_default_features: false, // opts.no_default_features,
+        ..CompileOptions::new(
+            &config,
+            CompileMode::Check {
+                test: false, /* cfg_test */
+            },
+        )
+        .unwrap()
+    };
 
     println!("cwd: {:?}", cwd);
 }
