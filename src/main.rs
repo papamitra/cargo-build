@@ -1,10 +1,10 @@
-use cargo::core::compiler::{BuildConfig, CompileMode, Context, Executor, Unit};
+use cargo::core::compiler::{BuildConfig, CompileMode, Executor};
 use cargo::core::{Shell, Workspace};
-use cargo::ops::{compile_with_exec, CompileFilter, CompileOptions, FilterRule, Packages};
+use cargo::ops::{compile_with_exec, CompileFilter, CompileOptions, Packages};
 use cargo::util::Config as CargoConfig;
 
 use std::env;
-use std::io::{self, BufWriter};
+use std::io::BufWriter;
 use std::sync::Arc;
 
 struct MyExecutor;
@@ -60,7 +60,7 @@ fn main() {
     };
 
     let exec = Arc::new(MyExecutor {}) as Arc<dyn Executor>;
-    compile_with_exec(&workspace, &compile_opts, &exec);
+    let _result = compile_with_exec(&workspace, &compile_opts, &exec);
 
     println!("cwd: {:?}", cwd);
 }
