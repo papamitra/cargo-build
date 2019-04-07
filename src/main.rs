@@ -13,12 +13,13 @@ impl Executor for MyExecutor {}
 
 fn main() {
     let cwd = env::current_dir().unwrap();
+    let manifest_path = cwd.join("Cargo.toml");
     let build_dir = cwd.join("build_");
 
     let shell = Shell::from_write(Box::new(BufWriter::new(std::io::stdout())));
     let config = CargoConfig::new(shell, cwd.to_path_buf(), build_dir);
 
-    let workspace = Workspace::new(&cwd, &config).unwrap();
+    let workspace = Workspace::new(&manifest_path, &config).unwrap();
 
     let compile_opts = CompileOptions {
         spec: Packages::from_flags(false, Vec::new(), Vec::new()).unwrap(),
