@@ -12,11 +12,12 @@ struct MyExecutor;
 impl Executor for MyExecutor {}
 
 fn main() {
+    let buf: Vec<u8> = Vec::new();
     let cwd = env::current_dir().unwrap();
     let manifest_path = cwd.join("Cargo.toml");
     let build_dir = cwd.join("build_");
 
-    let shell = Shell::from_write(Box::new(BufWriter::new(std::io::stdout())));
+    let shell = Shell::from_write(Box::new(BufWriter::new(buf)));
     let config = CargoConfig::new(shell, cwd.to_path_buf(), build_dir);
 
     let workspace = Workspace::new(&manifest_path, &config).unwrap();
