@@ -5,6 +5,11 @@ use cargo::util::Config as CargoConfig;
 
 use std::env;
 use std::io::{self, BufWriter};
+use std::sync::Arc;
+
+struct MyExecutor;
+
+impl Executor for MyExecutor {}
 
 fn main() {
     let cwd = env::current_dir().unwrap();
@@ -51,6 +56,9 @@ fn main() {
         )
         .unwrap()
     };
+
+    let exec = Arc::new(MyExecutor {}) as Arc<dyn Executor>;
+    compile_with_exec(&workspace, &compile_opts, &exec);
 
     println!("cwd: {:?}", cwd);
 }
