@@ -1,15 +1,43 @@
 use cargo::core::compiler::{BuildConfig, CompileMode, Executor};
-use cargo::core::{Shell, Workspace};
+use cargo::core::{PackageId, Shell, Target, Workspace};
 use cargo::ops::{compile_with_exec, CompileFilter, CompileOptions, Packages};
-use cargo::util::Config as CargoConfig;
+use cargo::util::errors::CargoResult;
+use cargo::util::{Config as CargoConfig, ProcessBuilder};
 
 use std::env;
 use std::io::BufWriter;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 struct MyExecutor;
 
-impl Executor for MyExecutor {}
+fn parse_arg(args: &[OsString], arg: &str) -> Option<String> {
+    for (i, a) in args.iter().enumerate() {
+        if a == arg {
+            return Some(args[i + 1].clone().into_string().unwrap());
+        }
+    }
+    None
+}
+
+impl Executor for MyExecutor {
+    fn exec(
+        &self,
+        cargo_cmd: ProcessBuilder,
+        _id: PackageId,
+        _target: &Target,
+        _mode: CompileMode,
+    ) -> CargoResult<()> {
+        //cmd.exec()?;
+
+        let cargo_args = cargo_cmd.get_args();
+        let out_dir = parse_arg(cargo_args, "--out-dir").expect("no out-dir in rustc command line");
+        let analysis_dir = Path::new(&out_dir).join("save-analysis");
+
+        println!("{:?}", cargo_cmd);
+        Ok(())
+    }
+}
 
 fn main() {
     let buf: Vec<u8> = Vec::new();
