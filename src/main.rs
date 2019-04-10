@@ -1,3 +1,9 @@
+#![feature(rustc_private)]
+#[allow(unused_extern_crates)]
+extern crate rustc_driver;
+#[allow(unused_extern_crates)]
+extern crate rustc_interface;
+
 use cargo::core::compiler::{BuildConfig, CompileMode, Executor};
 use cargo::core::{PackageId, Shell, Target, Workspace};
 use cargo::ops::{compile_with_exec, CompileFilter, CompileOptions, Packages};
@@ -10,6 +16,27 @@ use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
+
+use rustc_driver::{run_compiler, Callbacks};
+use rustc_interface::interface;
+
+struct MyRustcCalls;
+
+impl Callbacks for MyRustcCalls {
+    fn config(&mut self, config: &mut interface::Config) {
+        println!("MyRustsCalls::config()");
+    }
+
+    fn after_parsing(&mut self, _compiler: &interface::Compiler) -> bool {
+        println!("MyRustcCalls::after_parsing()");
+        true
+    }
+
+    fn after_analysis(&mut self, compiler: &interface::Compiler) -> bool {
+        println!("MyRustcCalls::after_analysis()");
+        true
+    }
+}
 
 fn current_sysroot() -> Option<String> {
     let home = env::var("RUSTUP_HOME").or_else(|_| env::var("MULTIRUST_HOME"));
@@ -60,7 +87,7 @@ impl Executor for MyExecutor {
 
         let cargo_args = cargo_cmd.get_args();
         let out_dir = parse_arg(cargo_args, "--out-dir").expect("no out-dir in rustc command line");
-        let analysis_dir = Path::new(&out_dir).join("save-analysis");
+        let _analysis_dir = Path::new(&out_dir).join("save-analysis");
 
         let mut cmd = cargo_cmd.clone();
 
@@ -69,10 +96,11 @@ impl Executor for MyExecutor {
             .iter()
             .map(|a| a.clone().into_string().unwrap())
             .collect();
-        let envs = cargo_cmd.get_envs().clone();
+        let _envs = cargo_cmd.get_envs().clone();
 
-        let sysroot = current_sysroot()
-            .expect("need to specify `SYSROOT` env var or use rustup or multirust");
+        let sysroot = current_sysroot().expect(
+            "need to specify `SYSROOT` env var or use rustup or multirust",
+        );
 
         args.push("--sysroot".to_owned());
         args.push(sysroot);
@@ -88,7 +116,13 @@ impl Executor for MyExecutor {
         let rustc = cargo_cmd.get_program().to_owned().into_string().unwrap();
         args.insert(0, rustc);
 
-        println!("{:?}", cmd);
+        let mut callbacks = MyRustcCalls{};
+
+        run_compiler(
+            &args,
+            &mut callbacks,
+            None, None);
+
         Ok(())
     }
 }
@@ -107,9 +141,9 @@ fn main() {
     let compile_opts = CompileOptions {
         spec: Packages::from_flags(false, Vec::new(), Vec::new()).unwrap(),
         filter: CompileFilter::new(
-            false,      // opts.lib,
+            false, // opts.lib,
             Vec::new(), // opts.bin,
-            false,      // opts.bins,
+            false, // opts.bins,
             // TODO: support more crate target types.
             Vec::new(),
             // Check all integration tests under `tests/`.
@@ -122,26 +156,17 @@ fn main() {
         ),
         build_config: BuildConfig::new(
             &config,
-            None,  // opts.jobs,
+            None, // opts.jobs,
             &None, // &opts.target,
-            CompileMode::Check {
-                test: false, /* cfg_test */
-            },
-        )
-        .unwrap(),
-        features: Vec::new(),       // opts.features,
-        all_features: false,        // opts.all_features,
+            CompileMode::Check { test: false /* cfg_test */ },
+        ).unwrap(),
+        features: Vec::new(), // opts.features,
+        all_features: false, // opts.all_features,
         no_default_features: false, // opts.no_default_features,
-        ..CompileOptions::new(
-            &config,
-            CompileMode::Check {
-                test: false, /* cfg_test */
-            },
-        )
-        .unwrap()
+        ..CompileOptions::new(&config, CompileMode::Check { test: false /* cfg_test */ }).unwrap()
     };
 
-    let exec = Arc::new(MyExecutor { build_dir }) as Arc<dyn Executor>;
+    let exec = Arc::new(MyExecutor { build_dir }) as Arc<Executor>;
     let _result = compile_with_exec(&workspace, &compile_opts, &exec);
 
     println!("cwd: {:?}", cwd);
