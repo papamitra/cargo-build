@@ -5,11 +5,30 @@ use cargo::util::errors::CargoResult;
 use cargo::util::{Config as CargoConfig, ProcessBuilder};
 
 use std::env;
+use std::ffi::OsString;
 use std::io::BufWriter;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::Arc;
 
-struct MyExecutor;
+fn current_sysroot() -> Option<String> {
+    let home = env::var("RUSTUP_HOME").or_else(|_| env::var("MULTIRUST_HOME"));
+    let toolchain = env::var("RUSTUP_TOOLCHAIN").or_else(|_| env::var("MULTIRUST_TOOLCHAIN"));
+    if let (Ok(home), Ok(toolchain)) = (home, toolchain) {
+        Some(format!("{}/toolchains/{}", home, toolchain))
+    } else {
+        let rustc_exe = env::var("RUSTC").unwrap_or_else(|_| "rustc".to_owned());
+        env::var("SYSROOT").ok().or_else(|| {
+            Command::new(rustc_exe)
+                .arg("--print")
+                .arg("sysroot")
+                .output()
+                .ok()
+                .and_then(|out| String::from_utf8(out.stdout).ok())
+                .map(|s| s.trim().to_owned())
+        })
+    }
+}
 
 fn parse_arg(args: &[OsString], arg: &str) -> Option<String> {
     for (i, a) in args.iter().enumerate() {
@@ -20,11 +39,20 @@ fn parse_arg(args: &[OsString], arg: &str) -> Option<String> {
     None
 }
 
+fn is_primary_package(id: PackageId) -> bool {
+    id.source_id().is_path()
+    // || self.member_packages.lock().unwrap().contains(&id)
+}
+
+struct MyExecutor {
+    build_dir: PathBuf,
+}
+
 impl Executor for MyExecutor {
     fn exec(
         &self,
         cargo_cmd: ProcessBuilder,
-        _id: PackageId,
+        id: PackageId,
         _target: &Target,
         _mode: CompileMode,
     ) -> CargoResult<()> {
@@ -34,7 +62,33 @@ impl Executor for MyExecutor {
         let out_dir = parse_arg(cargo_args, "--out-dir").expect("no out-dir in rustc command line");
         let analysis_dir = Path::new(&out_dir).join("save-analysis");
 
-        println!("{:?}", cargo_cmd);
+        let mut cmd = cargo_cmd.clone();
+
+        // Add args and envs to cmd.
+        let mut args: Vec<_> = cargo_args
+            .iter()
+            .map(|a| a.clone().into_string().unwrap())
+            .collect();
+        let envs = cargo_cmd.get_envs().clone();
+
+        let sysroot = current_sysroot()
+            .expect("need to specify `SYSROOT` env var or use rustup or multirust");
+
+        args.push("--sysroot".to_owned());
+        args.push(sysroot);
+
+        cmd.args_replace(&args);
+
+        if !is_primary_package(id) {
+            cmd.env("RUST_SAVE_ANALYSIS_CONFIG", r#"{ "reachable_only": true, "full_docs": true, "pub_only": true, "distro_crate": false, "signatures": false, "borrow_data": false }"#);
+            return cmd.exec();
+        }
+
+        // Prepare modified cargo-generated args/envs for future rustc calls.
+        let rustc = cargo_cmd.get_program().to_owned().into_string().unwrap();
+        args.insert(0, rustc);
+
+        println!("{:?}", cmd);
         Ok(())
     }
 }
@@ -46,7 +100,7 @@ fn main() {
     let build_dir = cwd.join("build_");
 
     let shell = Shell::from_write(Box::new(BufWriter::new(buf)));
-    let config = CargoConfig::new(shell, cwd.to_path_buf(), build_dir);
+    let config = CargoConfig::new(shell, cwd.to_path_buf(), build_dir.clone());
 
     let workspace = Workspace::new(&manifest_path, &config).unwrap();
 
@@ -87,7 +141,7 @@ fn main() {
         .unwrap()
     };
 
-    let exec = Arc::new(MyExecutor {}) as Arc<dyn Executor>;
+    let exec = Arc::new(MyExecutor { build_dir }) as Arc<dyn Executor>;
     let _result = compile_with_exec(&workspace, &compile_opts, &exec);
 
     println!("cwd: {:?}", cwd);
