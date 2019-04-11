@@ -164,8 +164,16 @@ impl Executor for MyExecutor {
 }
 
 fn main() {
-    let buf: Vec<u8> = Vec::new();
+    let args: Vec<_> = env::args().collect();
+
+    println!("args: {:?}", args);
+
+    if args.len() >= 2 {
+        env::set_current_dir(PathBuf::from(args[1].to_owned())).unwrap();
+    }
+
     let cwd = env::current_dir().unwrap();
+    let buf: Vec<u8> = Vec::new();
     let manifest_path = cwd.join("Cargo.toml");
     let build_dir = cwd.join("build_");
 
