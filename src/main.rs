@@ -3,6 +3,8 @@
 extern crate rustc_driver;
 #[allow(unused_extern_crates)]
 extern crate rustc_interface;
+#[allow(unused_extern_crates)]
+extern crate rustc_save_analysis;
 
 use cargo::core::compiler::{BuildConfig, CompileMode, Executor};
 use cargo::core::{PackageId, Shell, Target, Workspace};
@@ -15,16 +17,22 @@ use std::ffi::OsString;
 use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use rustc_driver::{run_compiler, Callbacks};
 use rustc_interface::interface;
+use rustc_save_analysis::CallbackHandler;
 
-struct MyRustcCalls;
+use rls_data::Analysis;
+
+struct MyRustcCalls {
+    analysis: Arc<Mutex<Option<Analysis>>>,
+}
 
 impl Callbacks for MyRustcCalls {
     fn config(&mut self, config: &mut interface::Config) {
         println!("MyRustsCalls::config()");
+        config.opts.debugging_opts.save_analysis = true;
     }
 
     fn after_parsing(&mut self, _compiler: &interface::Compiler) -> bool {
@@ -34,6 +42,31 @@ impl Callbacks for MyRustcCalls {
 
     fn after_analysis(&mut self, compiler: &interface::Compiler) -> bool {
         println!("MyRustcCalls::after_analysis()");
+
+        let sess = compiler.session();
+        let input = compiler.input();
+        let crate_name = compiler.crate_name().unwrap().peek().clone();
+
+        let expanded_crate = &compiler.expansion().unwrap().peek().0;
+
+        compiler.global_ctxt().unwrap().peek_mut().enter(|tcx| {
+            rustc_save_analysis::process_crate(
+                tcx,
+                &expanded_crate,
+                &crate_name,
+                &input,
+                None,
+                CallbackHandler {
+                    callback: &mut |a| {
+                        let mut analysis = self.analysis.lock().unwrap();
+                        let a = unsafe { ::std::mem::transmute(a.clone()) };
+                        *analysis = Some(a);
+                    },
+                },
+            );
+        });
+
+        println!("{:?}", self.analysis.lock().unwrap());
         true
     }
 }
@@ -108,7 +141,13 @@ impl Executor for MyExecutor {
         cmd.args_replace(&args);
 
         if !is_primary_package(id) {
-            cmd.env("RUST_SAVE_ANALYSIS_CONFIG", r#"{ "reachable_only": true, "full_docs": true, "pub_only": true, "distro_crate": false, "signatures": false, "borrow_data": false }"#);
+            cmd.env(
+                "RUST_SAVE_ANALYSIS_CONFIG",
+                r#"{ "reachable_only": true,
+                         "full_docs": true, "pub_only": true,
+                         "distro_crate": false,
+                         "signatures": false, "borrow_data": false }"#,
+            );
             return cmd.exec();
         }
 
@@ -116,12 +155,9 @@ impl Executor for MyExecutor {
         let rustc = cargo_cmd.get_program().to_owned().into_string().unwrap();
         args.insert(0, rustc);
 
-        let mut callbacks = MyRustcCalls{};
+        let mut callbacks = MyRustcCalls { analysis: Arc::new(Mutex::new(None)) };
 
-        run_compiler(
-            &args,
-            &mut callbacks,
-            None, None);
+        run_compiler(&args, &mut callbacks, None, None);
 
         Ok(())
     }
